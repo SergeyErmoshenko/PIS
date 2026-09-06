@@ -1,0 +1,313 @@
+CREATE TABLE Employee (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    last_name TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    middle_name TEXT,
+    position TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    is_active INTEGER AS Boolean NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE Client (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    manager_id INTEGER NOT NULL REFERENCES Employee(id) ON DELETE RESTRICT,
+    last_name TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    middle_name TEXT,
+    birth_date TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    passport_number TEXT NOT NULL UNIQUE,
+    registration_date TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'BLOCKED', 'ARCHIVED')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE InvestmentAccount (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES Client(id) ON DELETE RESTRICT,
+    account_number TEXT NOT NULL UNIQUE,
+    opened_at TEXT NOT NULL,
+    closed_at TEXT,
+    status TEXT NOT NULL CHECK (status IN ('OPEN', 'CLOSED', 'BLOCKED')),
+    currency TEXT NOT NULL DEFAULT 'RUB'
+);
+
+CREATE TABLE InstrumentType (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT
+);
+
+CREATE TABLE Instrument (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    type_id INTEGER NOT NULL REFERENCES InstrumentType(id) ON DELETE RESTRICT,
+    ticker TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    issuer TEXT NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'RUB',
+    is_active INTEGER AS Boolean NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE InstrumentPrice (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    instrument_id INTEGER NOT NULL REFERENCES Instrument(id) ON DELETE CASCADE,
+    price_date TEXT NOT NULL,
+    price REAL NOT NULL CHECK (price > 0),
+    UNIQUE (instrument_id, price_date)
+);
+
+CREATE TABLE Trade (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES InvestmentAccount(id) ON DELETE RESTRICT,
+    instrument_id INTEGER NOT NULL REFERENCES Instrument(id) ON DELETE RESTRICT,
+    employee_id INTEGER NOT NULL REFERENCES Employee(id) ON DELETE RESTRICT,
+    trade_type TEXT NOT NULL CHECK (trade_type IN ('BUY', 'SELL')),
+    trade_date TEXT NOT NULL,
+    quantity REAL NOT NULL CHECK (quantity > 0),
+    unit_price REAL NOT NULL CHECK (unit_price > 0),
+    commission REAL NOT NULL DEFAULT 0 CHECK (commission >= 0),
+    comment TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE Dividend (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES InvestmentAccount(id) ON DELETE RESTRICT,
+    instrument_id INTEGER NOT NULL REFERENCES Instrument(id) ON DELETE RESTRICT,
+    payment_date TEXT NOT NULL,
+    amount REAL NOT NULL CHECK (amount > 0),
+    tax_amount REAL NOT NULL DEFAULT 0 CHECK (tax_amount >= 0 AND tax_amount <= amount)
+);
+
+CREATE INDEX client_name_index ON Client(last_name, first_name);
+CREATE INDEX client_manager_index ON Client(manager_id);
+CREATE INDEX account_client_index ON InvestmentAccount(client_id);
+CREATE INDEX instrument_type_index ON Instrument(type_id);
+CREATE INDEX trade_account_date_index ON Trade(account_id, trade_date);
+CREATE INDEX trade_instrument_date_index ON Trade(instrument_id, trade_date);
+CREATE INDEX trade_employee_index ON Trade(employee_id);
+CREATE INDEX dividend_account_date_index ON Dividend(account_id, payment_date);
+
+selectEmployees:
+SELECT * FROM Employee ORDER BY last_name, first_name;
+
+selectActiveEmployees:
+SELECT * FROM Employee WHERE is_active = 1 ORDER BY last_name, first_name;
+
+insertEmployee:
+INSERT INTO Employee(last_name, first_name, middle_name, position, phone, email, is_active, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+updateEmployee:
+UPDATE Employee
+SET last_name = ?, first_name = ?, middle_name = ?, position = ?, phone = ?, email = ?, is_active = ?
+WHERE id = ?;
+
+selectClients:
+SELECT Client.*, Employee.last_name || ' ' || Employee.first_name AS manager_name,
+       COUNT(InvestmentAccount.id) AS account_count
+FROM Client
+JOIN Employee ON Employee.id = Client.manager_id
+LEFT JOIN InvestmentAccount ON InvestmentAccount.client_id = Client.id
+GROUP BY Client.id
+ORDER BY Client.last_name, Client.first_name;
+
+searchClients:
+SELECT Client.*, Employee.last_name || ' ' || Employee.first_name AS manager_name,
+       COUNT(InvestmentAccount.id) AS account_count
+FROM Client
+JOIN Employee ON Employee.id = Client.manager_id
+LEFT JOIN InvestmentAccount ON InvestmentAccount.client_id = Client.id
+WHERE lower(Client.last_name || ' ' || Client.first_name || ' ' || coalesce(Client.middle_name, '')) LIKE '%' || lower(:query) || '%'
+   OR lower(Client.phone) LIKE '%' || lower(:query) || '%'
+   OR lower(Client.email) LIKE '%' || lower(:query) || '%'
+   OR EXISTS (
+       SELECT 1 FROM InvestmentAccount account
+       WHERE account.client_id = Client.id AND lower(account.account_number) LIKE '%' || lower(:query) || '%'
+   )
+GROUP BY Client.id
+ORDER BY Client.last_name, Client.first_name;
+
+insertClient:
+INSERT INTO Client(manager_id, last_name, first_name, middle_name, birth_date, phone, email, passport_number,
+                   registration_date, status, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateClient:
+UPDATE Client
+SET manager_id = ?, last_name = ?, first_name = ?, middle_name = ?, birth_date = ?, phone = ?, email = ?,
+    passport_number = ?, status = ?, updated_at = ?
+WHERE id = ?;
+
+updateClientStatus:
+UPDATE Client SET status = ?, updated_at = ? WHERE id = ?;
+
+selectAccounts:
+SELECT InvestmentAccount.*, Client.last_name || ' ' || Client.first_name AS client_name
+FROM InvestmentAccount
+JOIN Client ON Client.id = InvestmentAccount.client_id
+ORDER BY InvestmentAccount.opened_at DESC;
+
+selectAccountsByClient:
+SELECT * FROM InvestmentAccount WHERE client_id = ? ORDER BY opened_at DESC;
+
+insertAccount:
+INSERT INTO InvestmentAccount(client_id, account_number, opened_at, closed_at, status, currency)
+VALUES (?, ?, ?, NULL, 'OPEN', ?);
+
+updateAccountStatus:
+UPDATE InvestmentAccount SET status = ?, closed_at = ? WHERE id = ?;
+
+selectInstrumentTypes:
+SELECT * FROM InstrumentType ORDER BY name;
+
+insertInstrumentType:
+INSERT OR IGNORE INTO InstrumentType(name, description) VALUES (?, ?);
+
+selectInstruments:
+SELECT Instrument.*, InstrumentType.name AS type_name,
+       (SELECT price FROM InstrumentPrice WHERE instrument_id = Instrument.id ORDER BY price_date DESC LIMIT 1) AS latest_price,
+       (SELECT price_date FROM InstrumentPrice WHERE instrument_id = Instrument.id ORDER BY price_date DESC LIMIT 1) AS latest_price_date
+FROM Instrument
+JOIN InstrumentType ON InstrumentType.id = Instrument.type_id
+ORDER BY Instrument.ticker;
+
+insertInstrument:
+INSERT INTO Instrument(type_id, ticker, name, issuer, currency, is_active, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+updateInstrument:
+UPDATE Instrument SET type_id = ?, ticker = ?, name = ?, issuer = ?, currency = ?, is_active = ? WHERE id = ?;
+
+insertInstrumentPrice:
+INSERT INTO InstrumentPrice(instrument_id, price_date, price) VALUES (?, ?, ?);
+
+selectPricesByInstrument:
+SELECT * FROM InstrumentPrice WHERE instrument_id = ? ORDER BY price_date DESC;
+
+selectTrades:
+SELECT Trade.*, Client.last_name || ' ' || Client.first_name AS client_name,
+       InvestmentAccount.account_number, Instrument.ticker, Instrument.name AS instrument_name,
+       Employee.last_name || ' ' || Employee.first_name AS employee_name
+FROM Trade
+JOIN InvestmentAccount ON InvestmentAccount.id = Trade.account_id
+JOIN Client ON Client.id = InvestmentAccount.client_id
+JOIN Instrument ON Instrument.id = Trade.instrument_id
+JOIN Employee ON Employee.id = Trade.employee_id
+ORDER BY Trade.trade_date DESC, Trade.id DESC;
+
+filterTrades:
+SELECT Trade.*, Client.last_name || ' ' || Client.first_name AS client_name,
+       InvestmentAccount.account_number, Instrument.ticker, Instrument.name AS instrument_name,
+       Employee.last_name || ' ' || Employee.first_name AS employee_name
+FROM Trade
+JOIN InvestmentAccount ON InvestmentAccount.id = Trade.account_id
+JOIN Client ON Client.id = InvestmentAccount.client_id
+JOIN Instrument ON Instrument.id = Trade.instrument_id
+JOIN Employee ON Employee.id = Trade.employee_id
+WHERE (:client_id IS NULL OR Client.id = :client_id)
+  AND (:account_id IS NULL OR Trade.account_id = :account_id)
+  AND (:instrument_id IS NULL OR Trade.instrument_id = :instrument_id)
+  AND (:trade_type IS NULL OR Trade.trade_type = :trade_type)
+  AND (:date_from IS NULL OR Trade.trade_date >= :date_from)
+  AND (:date_to IS NULL OR Trade.trade_date <= :date_to)
+  AND (:amount_min IS NULL OR Trade.quantity * Trade.unit_price >= :amount_min)
+  AND (:amount_max IS NULL OR Trade.quantity * Trade.unit_price <= :amount_max)
+ORDER BY Trade.trade_date DESC, Trade.id DESC;
+
+insertTrade:
+INSERT INTO Trade(account_id, instrument_id, employee_id, trade_type, trade_date, quantity, unit_price, commission, comment, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteTrade:
+DELETE FROM Trade WHERE id = ?;
+
+positionQuantity:
+SELECT coalesce(SUM(CASE WHEN trade_type = 'BUY' THEN quantity ELSE -quantity END), 0.0)
+FROM Trade WHERE account_id = ? AND instrument_id = ?;
+
+selectPortfolioPositions:
+SELECT InvestmentAccount.id AS account_id, InvestmentAccount.account_number,
+       Client.id AS client_id, Client.last_name || ' ' || Client.first_name AS client_name,
+       Instrument.id AS instrument_id, Instrument.ticker, Instrument.name AS instrument_name,
+       SUM(CASE WHEN Trade.trade_type = 'BUY' THEN Trade.quantity ELSE -Trade.quantity END) AS quantity,
+       SUM(CASE WHEN Trade.trade_type = 'BUY' THEN Trade.quantity * Trade.unit_price + Trade.commission ELSE 0 END) /
+           NULLIF(SUM(CASE WHEN Trade.trade_type = 'BUY' THEN Trade.quantity ELSE 0 END), 0) AS average_buy_price,
+       (SELECT price FROM InstrumentPrice WHERE instrument_id = Instrument.id ORDER BY price_date DESC LIMIT 1) AS latest_price
+FROM Trade
+JOIN InvestmentAccount ON InvestmentAccount.id = Trade.account_id
+JOIN Client ON Client.id = InvestmentAccount.client_id
+JOIN Instrument ON Instrument.id = Trade.instrument_id
+GROUP BY InvestmentAccount.id, Instrument.id
+HAVING quantity > 0
+ORDER BY Client.last_name, InvestmentAccount.account_number, Instrument.ticker;
+
+portfolioSummaryByClient:
+SELECT Client.id AS client_id, Client.last_name || ' ' || Client.first_name AS client_name,
+       COUNT(DISTINCT positions.instrument_id) AS instrument_count,
+       coalesce(SUM(positions.quantity * positions.latest_price), 0.0) AS current_value
+FROM Client
+LEFT JOIN (
+    SELECT InvestmentAccount.client_id, Trade.instrument_id,
+           SUM(CASE WHEN Trade.trade_type = 'BUY' THEN Trade.quantity ELSE -Trade.quantity END) AS quantity,
+           coalesce((SELECT price FROM InstrumentPrice WHERE instrument_id = Trade.instrument_id ORDER BY price_date DESC LIMIT 1), 0.0) AS latest_price
+    FROM Trade
+    JOIN InvestmentAccount ON InvestmentAccount.id = Trade.account_id
+    GROUP BY InvestmentAccount.client_id, Trade.instrument_id
+    HAVING quantity > 0
+) positions ON positions.client_id = Client.id
+GROUP BY Client.id
+ORDER BY current_value DESC;
+
+monthlyTurnover:
+SELECT substr(trade_date, 1, 7) AS month,
+       SUM(CASE WHEN trade_type = 'BUY' THEN quantity * unit_price ELSE 0 END) AS buy_turnover,
+       SUM(CASE WHEN trade_type = 'SELL' THEN quantity * unit_price ELSE 0 END) AS sell_turnover
+FROM Trade
+GROUP BY month
+ORDER BY month DESC;
+
+assetAllocation:
+SELECT InstrumentType.name AS type_name,
+       SUM(positions.quantity * positions.latest_price) AS current_value
+FROM (
+    SELECT Trade.instrument_id,
+           SUM(CASE WHEN Trade.trade_type = 'BUY' THEN Trade.quantity ELSE -Trade.quantity END) AS quantity,
+           coalesce((SELECT price FROM InstrumentPrice WHERE instrument_id = Trade.instrument_id ORDER BY price_date DESC LIMIT 1), 0.0) AS latest_price
+    FROM Trade
+    GROUP BY Trade.instrument_id
+    HAVING quantity > 0
+) positions
+JOIN Instrument ON Instrument.id = positions.instrument_id
+JOIN InstrumentType ON InstrumentType.id = Instrument.type_id
+GROUP BY InstrumentType.id
+ORDER BY current_value DESC;
+
+selectDividends:
+SELECT Dividend.*, Client.last_name || ' ' || Client.first_name AS client_name,
+       InvestmentAccount.account_number, Instrument.ticker
+FROM Dividend
+JOIN InvestmentAccount ON InvestmentAccount.id = Dividend.account_id
+JOIN Client ON Client.id = InvestmentAccount.client_id
+JOIN Instrument ON Instrument.id = Dividend.instrument_id
+ORDER BY Dividend.payment_date DESC;
+
+insertDividend:
+INSERT INTO Dividend(account_id, instrument_id, payment_date, amount, tax_amount) VALUES (?, ?, ?, ?, ?);
+
+updateDividend:
+UPDATE Dividend SET account_id = ?, instrument_id = ?, payment_date = ?, amount = ?, tax_amount = ? WHERE id = ?;
+
+deleteDividend:
+DELETE FROM Dividend WHERE id = ?;
+
+dashboardCounts:
+SELECT (SELECT COUNT(*) FROM Client WHERE status = 'ACTIVE') AS client_count,
+       (SELECT COUNT(*) FROM InvestmentAccount WHERE status = 'OPEN') AS account_count,
+       (SELECT COUNT(*) FROM Instrument WHERE is_active = 1) AS instrument_count,
+       (SELECT COUNT(*) FROM Trade) AS trade_count;
