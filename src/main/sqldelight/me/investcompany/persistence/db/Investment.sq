@@ -6,7 +6,7 @@ CREATE TABLE Employee (
     position TEXT NOT NULL,
     phone TEXT NOT NULL,
     email TEXT NOT NULL UNIQUE,
-    is_active INTEGER AS Boolean NOT NULL DEFAULT 1,
+    is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
 
@@ -22,6 +22,7 @@ CREATE TABLE Client (
     passport_number TEXT NOT NULL UNIQUE,
     registration_date TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'BLOCKED', 'ARCHIVED')),
+    search_name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -49,7 +50,7 @@ CREATE TABLE Instrument (
     name TEXT NOT NULL,
     issuer TEXT NOT NULL,
     currency TEXT NOT NULL DEFAULT 'RUB',
-    is_active INTEGER AS Boolean NOT NULL DEFAULT 1,
+    is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
 
@@ -117,31 +118,33 @@ LEFT JOIN InvestmentAccount ON InvestmentAccount.client_id = Client.id
 GROUP BY Client.id
 ORDER BY Client.last_name, Client.first_name;
 
+-- :query must already be lowercased in Kotlin: SQLite's builtin lower() only folds ASCII,
+-- so it cannot make Cyrillic name search case-insensitive; search_name is pre-lowered on write instead.
 searchClients:
 SELECT Client.*, Employee.last_name || ' ' || Employee.first_name AS manager_name,
        COUNT(InvestmentAccount.id) AS account_count
 FROM Client
 JOIN Employee ON Employee.id = Client.manager_id
 LEFT JOIN InvestmentAccount ON InvestmentAccount.client_id = Client.id
-WHERE lower(Client.last_name || ' ' || Client.first_name || ' ' || coalesce(Client.middle_name, '')) LIKE '%' || lower(:query) || '%'
-   OR lower(Client.phone) LIKE '%' || lower(:query) || '%'
-   OR lower(Client.email) LIKE '%' || lower(:query) || '%'
+WHERE Client.search_name LIKE '%' || :query || '%'
+   OR lower(Client.phone) LIKE '%' || :query || '%'
+   OR lower(Client.email) LIKE '%' || :query || '%'
    OR EXISTS (
        SELECT 1 FROM InvestmentAccount account
-       WHERE account.client_id = Client.id AND lower(account.account_number) LIKE '%' || lower(:query) || '%'
+       WHERE account.client_id = Client.id AND lower(account.account_number) LIKE '%' || :query || '%'
    )
 GROUP BY Client.id
 ORDER BY Client.last_name, Client.first_name;
 
 insertClient:
 INSERT INTO Client(manager_id, last_name, first_name, middle_name, birth_date, phone, email, passport_number,
-                   registration_date, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                   registration_date, status, search_name, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateClient:
 UPDATE Client
 SET manager_id = ?, last_name = ?, first_name = ?, middle_name = ?, birth_date = ?, phone = ?, email = ?,
-    passport_number = ?, status = ?, updated_at = ?
+    passport_number = ?, status = ?, search_name = ?, updated_at = ?
 WHERE id = ?;
 
 updateClientStatus:
@@ -160,6 +163,9 @@ insertAccount:
 INSERT INTO InvestmentAccount(client_id, account_number, opened_at, closed_at, status, currency)
 VALUES (?, ?, ?, NULL, 'OPEN', ?);
 
+updateAccount:
+UPDATE InvestmentAccount SET client_id = ?, account_number = ? WHERE id = ?;
+
 updateAccountStatus:
 UPDATE InvestmentAccount SET status = ?, closed_at = ? WHERE id = ?;
 
@@ -171,10 +177,12 @@ INSERT OR IGNORE INTO InstrumentType(name, description) VALUES (?, ?);
 
 selectInstruments:
 SELECT Instrument.*, InstrumentType.name AS type_name,
-       (SELECT price FROM InstrumentPrice WHERE instrument_id = Instrument.id ORDER BY price_date DESC LIMIT 1) AS latest_price,
-       (SELECT price_date FROM InstrumentPrice WHERE instrument_id = Instrument.id ORDER BY price_date DESC LIMIT 1) AS latest_price_date
+       InstrumentPrice.price AS latest_price,
+       InstrumentPrice.price_date AS latest_price_date
 FROM Instrument
 JOIN InstrumentType ON InstrumentType.id = Instrument.type_id
+LEFT JOIN InstrumentPrice ON InstrumentPrice.instrument_id = Instrument.id
+    AND InstrumentPrice.price_date = (SELECT MAX(latest.price_date) FROM InstrumentPrice latest WHERE latest.instrument_id = Instrument.id)
 ORDER BY Instrument.ticker;
 
 insertInstrument:
@@ -189,6 +197,10 @@ INSERT INTO InstrumentPrice(instrument_id, price_date, price) VALUES (?, ?, ?);
 
 selectPricesByInstrument:
 SELECT * FROM InstrumentPrice WHERE instrument_id = ? ORDER BY price_date DESC;
+
+deleteLatestPrice:
+DELETE FROM InstrumentPrice
+WHERE id = (SELECT id FROM InstrumentPrice WHERE instrument_id = ? ORDER BY price_date DESC LIMIT 1);
 
 selectTrades:
 SELECT Trade.*, Client.last_name || ' ' || Client.first_name AS client_name,
@@ -223,6 +235,11 @@ ORDER BY Trade.trade_date DESC, Trade.id DESC;
 insertTrade:
 INSERT INTO Trade(account_id, instrument_id, employee_id, trade_type, trade_date, quantity, unit_price, commission, comment, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateTrade:
+UPDATE Trade
+SET account_id = ?, instrument_id = ?, employee_id = ?, trade_type = ?, trade_date = ?, quantity = ?, unit_price = ?, commission = ?, comment = ?
+WHERE id = ?;
 
 deleteTrade:
 DELETE FROM Trade WHERE id = ?;

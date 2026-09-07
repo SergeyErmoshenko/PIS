@@ -3,6 +3,7 @@ package me.investcompany.domain
 enum class ClientStatus { ACTIVE, BLOCKED, ARCHIVED }
 enum class AccountStatus { OPEN, CLOSED, BLOCKED }
 enum class TradeType { BUY, SELL }
+enum class UserRole { ADMINISTRATOR, MANAGER, ANALYST }
 
 data class Employee(
     val id: Long,
@@ -13,12 +14,31 @@ data class Employee(
     val phone: String,
     val email: String,
     val isActive: Boolean,
+) {
+    val fullName: String get() = listOfNotNull(lastName, firstName, middleName).joinToString(" ")
+    val role: UserRole
+        get() = when {
+            position.contains("аналитик", ignoreCase = true) -> UserRole.ANALYST
+            position.contains("администратор", ignoreCase = true) -> UserRole.ADMINISTRATOR
+            else -> UserRole.MANAGER
+        }
+}
+
+data class EmployeeInput(
+    val lastName: String,
+    val firstName: String,
+    val middleName: String?,
+    val position: String,
+    val phone: String,
+    val email: String,
 )
 
 data class Client(
     val id: Long,
     val managerId: Long,
-    val fullName: String,
+    val lastName: String,
+    val firstName: String,
+    val middleName: String?,
     val birthDate: String,
     val phone: String,
     val email: String,
@@ -27,6 +47,14 @@ data class Client(
     val status: ClientStatus,
     val managerName: String,
     val accountCount: Long,
+) {
+    val fullName: String get() = listOfNotNull(lastName, firstName, middleName).joinToString(" ")
+}
+
+data class InstrumentType(
+    val id: Long,
+    val name: String,
+    val description: String?,
 )
 
 data class Account(
@@ -134,6 +162,26 @@ data class NewClient(
     val phone: String,
     val email: String,
     val passportNumber: String,
+)
+
+data class ClientUpdate(
+    val managerId: Long,
+    val lastName: String,
+    val firstName: String,
+    val middleName: String?,
+    val birthDate: String,
+    val phone: String,
+    val email: String,
+    val passportNumber: String,
+    val status: ClientStatus,
+)
+
+data class InstrumentInput(
+    val typeId: Long,
+    val ticker: String,
+    val name: String,
+    val issuer: String,
+    val currency: String = "RUB",
 )
 
 data class NewTrade(

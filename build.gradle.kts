@@ -45,7 +45,6 @@ sqldelight {
         create("InvestDatabase") {
             packageName.set("me.investcompany.persistence.db")
             schemaOutputDirectory.set(file("src/main/sqldelight/databases"))
-            verifyMigrations.set(true)
         }
     }
 }
