@@ -2,6 +2,7 @@ package me.investcompany.persistence
 
 import me.investcompany.domain.*
 import kotlin.test.*
+import java.sql.SQLException
 
 class SqlDelightInvestmentRepositoryTest {
     private lateinit var repository: SqlDelightInvestmentRepository
@@ -148,5 +149,94 @@ class SqlDelightInvestmentRepositoryTest {
         val current = instrument.latestPrice
         repository.deleteLatestPrice(instrument.id)
         assertNotEquals(current, repository.instruments().first { it.id == instrument.id }.latestPrice)
+    }
+
+    @Test
+    fun `instrument price can be added and becomes latest`() {
+        val instrument = repository.instruments().first()
+        repository.deleteLatestPrice(instrument.id)
+        repository.addPrice(instrument.id, 12345.0)
+        assertEquals(12345.0, repository.instruments().first { it.id == instrument.id }.latestPrice)
+    }
+
+    @Test
+    fun `invalid client is rejected before insert`() {
+        val manager = repository.employees().first()
+        assertFailsWith<IllegalArgumentException> {
+            repository.addClient(NewClient(manager.id, "", "Тест", null, "1995-05-10", "+7000", "test@example.ru", "999"))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            repository.addClient(NewClient(manager.id, "Тестов", "Тест", null, "invalid-date", "+7000", "test@example.ru", "999"))
+        }
+    }
+
+    @Test
+    fun `duplicate employee email is rejected`() {
+        val existing = repository.employees().first()
+        assertFailsWith<SQLException> {
+            repository.addEmployee(EmployeeInput("Новый", "Сотрудник", null, "Аналитик", "+7000", existing.email))
+        }
+    }
+
+    @Test
+    fun `duplicate client email is rejected`() {
+        val existing = repository.clients().first()
+        val manager = repository.employees().first()
+        assertFailsWith<SQLException> {
+            repository.addClient(NewClient(manager.id, "Тестов", "Тест", null, "1995-05-10", "+7000", existing.email, "555555"))
+        }
+    }
+
+    @Test
+    fun `duplicate client passport number is rejected`() {
+        val existing = repository.clients().first()
+        val manager = repository.employees().first()
+        assertFailsWith<SQLException> {
+            repository.addClient(NewClient(manager.id, "Тестов", "Тест", null, "1995-05-10", "+7000", "unique2@example.ru", existing.passportNumber))
+        }
+    }
+
+    @Test
+    fun `duplicate account number is rejected`() {
+        val existing = repository.accounts().first()
+        val client = repository.clients().first()
+        assertFailsWith<SQLException> { repository.addAccount(client.id, existing.accountNumber) }
+    }
+
+    @Test
+    fun `duplicate instrument ticker is rejected`() {
+        val existing = repository.instruments().first()
+        val type = repository.instrumentTypes().first()
+        assertFailsWith<SQLException> { repository.addInstrument(type.id, existing.ticker, "Другой", "Эмитент", 100.0) }
+    }
+
+    @Test
+    fun `trade for missing account is rejected`() {
+        val instrument = repository.instruments().first()
+        val employee = repository.employees().first()
+        val missingAccountId = repository.accounts().maxOf { it.id } + 1000
+        val trade = NewTrade(missingAccountId, instrument.id, employee.id, TradeType.BUY, "2026-01-01", 1.0, 100.0, 0.0, null)
+        assertFailsWith<IllegalStateException> { repository.addTrade(trade) }
+    }
+
+    @Test
+    fun `dividend for missing account is rejected`() {
+        val instrument = repository.instruments().first()
+        val missingAccountId = repository.accounts().maxOf { it.id } + 1000
+        assertFailsWith<SQLException> { repository.addDividend(missingAccountId, instrument.id, 100.0, 10.0) }
+    }
+
+    @Test
+    fun `dynamic trade filter matches individual criteria`() {
+        val sample = repository.trades().first()
+        assertTrue(repository.trades(TradeFilter(accountId = sample.accountId)).all { it.accountId == sample.accountId })
+        assertTrue(repository.trades(TradeFilter(instrumentId = sample.instrumentId)).all { it.instrumentId == sample.instrumentId })
+        val client = repository.clients().first { it.fullName == sample.clientName }
+        assertTrue(repository.trades(TradeFilter(clientId = client.id)).all { it.clientName == client.fullName })
+    }
+
+    @Test
+    fun `blank client search returns full list`() {
+        assertEquals(repository.clients().size, repository.clients("   ").size)
     }
 }
