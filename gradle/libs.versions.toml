@@ -1,0 +1,43 @@
+[versions]
+kotlin = "2.4.0"
+compose = "1.9.3"
+coroutines = "1.10.2"
+immutable = "0.4.0"
+serialization = "1.9.0"
+datetime = "0.7.0"
+sqldelight = "2.1.0"
+konsist = "0.17.3"
+kotest = "5.9.1"
+turbine = "1.2.0"
+kotlinLogging = "7.0.7"
+logback = "1.5.18"
+junitPlatform = "1.13.4"
+
+[libraries]
+kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
+kotlinx-collections-immutable = { module = "org.jetbrains.kotlinx:kotlinx-collections-immutable", version.ref = "immutable" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "datetime" }
+sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }
+sqldelight-driver-sqlite = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
+sqldelight-primitive-adapters = { module = "app.cash.sqldelight:primitive-adapters", version.ref = "sqldelight" }
+kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlinLogging" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+konsist = { module = "com.lemonappdev:konsist", version.ref = "konsist" }
+kotest-assertions = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
+turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junitPlatform" }
+
+[bundles]
+kotlinx = ["kotlinx-coroutines", "kotlinx-collections-immutable", "kotlinx-datetime", "kotlinx-serialization-json"]
+sqldelight = ["sqldelight-runtime", "sqldelight-driver-sqlite", "sqldelight-primitive-adapters"]
+testing = ["kotest-assertions", "konsist", "turbine", "kotlinx-coroutines-test"]
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+compose = { id = "org.jetbrains.compose", version.ref = "compose" }
+sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }

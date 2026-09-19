@@ -1,0 +1,337 @@
+CREATE TABLE Employee (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    last_name TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    middle_name TEXT,
+    position TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE Client (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    advisor_id INTEGER NOT NULL REFERENCES Employee(id) ON DELETE RESTRICT,
+    last_name TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    middle_name TEXT,
+    phone TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    registration_date TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'BLOCKED', 'ARCHIVED')),
+    search_name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE Vehicle (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES Client(id) ON DELETE RESTRICT,
+    make TEXT NOT NULL,
+    model TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    license_plate TEXT NOT NULL UNIQUE,
+    vin TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'SOLD', 'BLOCKED')),
+    registered_at TEXT NOT NULL,
+    retired_at TEXT
+);
+
+CREATE TABLE ServiceCategory (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT
+);
+
+CREATE TABLE Service (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    category_id INTEGER NOT NULL REFERENCES ServiceCategory(id) ON DELETE RESTRICT,
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE ServicePrice (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    service_id INTEGER NOT NULL REFERENCES Service(id) ON DELETE CASCADE,
+    price_date TEXT NOT NULL,
+    price REAL NOT NULL CHECK (price > 0),
+    UNIQUE (service_id, price_date)
+);
+
+CREATE TABLE Part (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    sku TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    unit_price REAL NOT NULL CHECK (unit_price > 0),
+    quantity_in_stock INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE WorkOrder (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    vehicle_id INTEGER NOT NULL REFERENCES Vehicle(id) ON DELETE RESTRICT,
+    service_id INTEGER NOT NULL REFERENCES Service(id) ON DELETE RESTRICT,
+    mechanic_id INTEGER NOT NULL REFERENCES Employee(id) ON DELETE RESTRICT,
+    status TEXT NOT NULL CHECK (status IN ('NEW', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')),
+    open_date TEXT NOT NULL,
+    quantity REAL NOT NULL CHECK (quantity > 0),
+    unit_price REAL NOT NULL CHECK (unit_price > 0),
+    discount REAL NOT NULL DEFAULT 0 CHECK (discount >= 0),
+    comment TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE PartUsage (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    work_order_id INTEGER NOT NULL REFERENCES WorkOrder(id) ON DELETE RESTRICT,
+    part_id INTEGER NOT NULL REFERENCES Part(id) ON DELETE RESTRICT,
+    usage_date TEXT NOT NULL,
+    amount REAL NOT NULL CHECK (amount > 0),
+    discount_amount REAL NOT NULL DEFAULT 0 CHECK (discount_amount >= 0 AND discount_amount <= amount)
+);
+
+CREATE TABLE Payment (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    work_order_id INTEGER NOT NULL REFERENCES WorkOrder(id) ON DELETE RESTRICT,
+    payment_date TEXT NOT NULL,
+    amount REAL NOT NULL CHECK (amount > 0),
+    discount_amount REAL NOT NULL DEFAULT 0 CHECK (discount_amount >= 0 AND discount_amount <= amount)
+);
+
+CREATE INDEX client_name_index ON Client(last_name, first_name);
+CREATE INDEX client_advisor_index ON Client(advisor_id);
+CREATE INDEX vehicle_client_index ON Vehicle(client_id);
+CREATE INDEX service_category_index ON Service(category_id);
+CREATE INDEX work_order_vehicle_date_index ON WorkOrder(vehicle_id, open_date);
+CREATE INDEX work_order_service_date_index ON WorkOrder(service_id, open_date);
+CREATE INDEX work_order_mechanic_index ON WorkOrder(mechanic_id);
+CREATE INDEX part_usage_work_order_index ON PartUsage(work_order_id, usage_date);
+CREATE INDEX payment_work_order_index ON Payment(work_order_id, payment_date);
+
+selectEmployees:
+SELECT * FROM Employee ORDER BY last_name, first_name;
+
+insertEmployee:
+INSERT INTO Employee(last_name, first_name, middle_name, position, phone, email, is_active, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+updateEmployee:
+UPDATE Employee
+SET last_name = ?, first_name = ?, middle_name = ?, position = ?, phone = ?, email = ?, is_active = ?
+WHERE id = ?;
+
+selectClients:
+SELECT Client.*, Employee.last_name || ' ' || Employee.first_name AS advisor_name,
+       COUNT(Vehicle.id) AS vehicle_count
+FROM Client
+JOIN Employee ON Employee.id = Client.advisor_id
+LEFT JOIN Vehicle ON Vehicle.client_id = Client.id
+GROUP BY Client.id
+ORDER BY Client.last_name, Client.first_name;
+
+-- :query must already be lowercased in Kotlin: SQLite's builtin lower() only folds ASCII,
+-- so it cannot make Cyrillic name search case-insensitive; search_name is pre-lowered on write instead.
+searchClients:
+SELECT Client.*, Employee.last_name || ' ' || Employee.first_name AS advisor_name,
+       COUNT(Vehicle.id) AS vehicle_count
+FROM Client
+JOIN Employee ON Employee.id = Client.advisor_id
+LEFT JOIN Vehicle ON Vehicle.client_id = Client.id
+WHERE Client.search_name LIKE '%' || :query || '%'
+   OR lower(Client.phone) LIKE '%' || :query || '%'
+   OR lower(Client.email) LIKE '%' || :query || '%'
+   OR EXISTS (
+       SELECT 1 FROM Vehicle vehicle
+       WHERE vehicle.client_id = Client.id AND lower(vehicle.license_plate) LIKE '%' || :query || '%'
+   )
+GROUP BY Client.id
+ORDER BY Client.last_name, Client.first_name;
+
+insertClient:
+INSERT INTO Client(advisor_id, last_name, first_name, middle_name, phone, email, registration_date, status,
+                    search_name, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateClient:
+UPDATE Client
+SET advisor_id = ?, last_name = ?, first_name = ?, middle_name = ?, phone = ?, email = ?, status = ?,
+    search_name = ?, updated_at = ?
+WHERE id = ?;
+
+updateClientStatus:
+UPDATE Client SET status = ?, updated_at = ? WHERE id = ?;
+
+selectVehicles:
+SELECT Vehicle.*, Client.last_name || ' ' || Client.first_name AS client_name
+FROM Vehicle
+JOIN Client ON Client.id = Vehicle.client_id
+ORDER BY Vehicle.registered_at DESC;
+
+insertVehicle:
+INSERT INTO Vehicle(client_id, make, model, year, license_plate, vin, status, registered_at, retired_at)
+VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, NULL);
+
+updateVehicle:
+UPDATE Vehicle SET client_id = ?, make = ?, model = ?, year = ?, license_plate = ?, vin = ? WHERE id = ?;
+
+updateVehicleStatus:
+UPDATE Vehicle SET status = ?, retired_at = ? WHERE id = ?;
+
+selectServiceCategories:
+SELECT * FROM ServiceCategory ORDER BY name;
+
+insertServiceCategory:
+INSERT OR IGNORE INTO ServiceCategory(name, description) VALUES (?, ?);
+
+selectServices:
+SELECT Service.*, ServiceCategory.name AS category_name,
+       ServicePrice.price AS latest_price,
+       ServicePrice.price_date AS latest_price_date
+FROM Service
+JOIN ServiceCategory ON ServiceCategory.id = Service.category_id
+LEFT JOIN ServicePrice ON ServicePrice.service_id = Service.id
+    AND ServicePrice.price_date = (SELECT MAX(latest.price_date) FROM ServicePrice latest WHERE latest.service_id = Service.id)
+ORDER BY Service.code;
+
+insertService:
+INSERT INTO Service(category_id, code, name, is_active, created_at)
+VALUES (?, ?, ?, ?, ?);
+
+updateService:
+UPDATE Service SET category_id = ?, code = ?, name = ?, is_active = ? WHERE id = ?;
+
+insertServicePrice:
+INSERT INTO ServicePrice(service_id, price_date, price) VALUES (?, ?, ?);
+
+deleteLatestServicePrice:
+DELETE FROM ServicePrice
+WHERE id = (SELECT id FROM ServicePrice WHERE service_id = ? ORDER BY price_date DESC LIMIT 1);
+
+selectParts:
+SELECT * FROM Part ORDER BY sku;
+
+insertPart:
+INSERT INTO Part(sku, name, unit_price, quantity_in_stock, is_active, created_at)
+VALUES (?, ?, ?, ?, ?, ?);
+
+updatePart:
+UPDATE Part SET sku = ?, name = ?, unit_price = ?, quantity_in_stock = ?, is_active = ? WHERE id = ?;
+
+selectWorkOrders:
+SELECT WorkOrder.*, Client.last_name || ' ' || Client.first_name AS client_name,
+       Vehicle.license_plate, Service.code AS service_code, Service.name AS service_name,
+       Employee.last_name || ' ' || Employee.first_name AS mechanic_name
+FROM WorkOrder
+JOIN Vehicle ON Vehicle.id = WorkOrder.vehicle_id
+JOIN Client ON Client.id = Vehicle.client_id
+JOIN Service ON Service.id = WorkOrder.service_id
+JOIN Employee ON Employee.id = WorkOrder.mechanic_id
+ORDER BY WorkOrder.open_date DESC, WorkOrder.id DESC;
+
+filterWorkOrders:
+SELECT WorkOrder.*, Client.last_name || ' ' || Client.first_name AS client_name,
+       Vehicle.license_plate, Service.code AS service_code, Service.name AS service_name,
+       Employee.last_name || ' ' || Employee.first_name AS mechanic_name
+FROM WorkOrder
+JOIN Vehicle ON Vehicle.id = WorkOrder.vehicle_id
+JOIN Client ON Client.id = Vehicle.client_id
+JOIN Service ON Service.id = WorkOrder.service_id
+JOIN Employee ON Employee.id = WorkOrder.mechanic_id
+WHERE (:vehicle_id IS NULL OR WorkOrder.vehicle_id = :vehicle_id)
+  AND (:client_id IS NULL OR Client.id = :client_id)
+  AND (:service_id IS NULL OR WorkOrder.service_id = :service_id)
+  AND (:status IS NULL OR WorkOrder.status = :status)
+  AND (:date_from IS NULL OR WorkOrder.open_date >= :date_from)
+  AND (:date_to IS NULL OR WorkOrder.open_date <= :date_to)
+  AND (:amount_min IS NULL OR WorkOrder.quantity * WorkOrder.unit_price >= :amount_min)
+  AND (:amount_max IS NULL OR WorkOrder.quantity * WorkOrder.unit_price <= :amount_max)
+ORDER BY WorkOrder.open_date DESC, WorkOrder.id DESC;
+
+insertWorkOrder:
+INSERT INTO WorkOrder(vehicle_id, service_id, mechanic_id, status, open_date, quantity, unit_price, discount, comment, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateWorkOrder:
+UPDATE WorkOrder
+SET vehicle_id = ?, service_id = ?, mechanic_id = ?, status = ?, open_date = ?, quantity = ?, unit_price = ?, discount = ?, comment = ?
+WHERE id = ?;
+
+deleteWorkOrder:
+DELETE FROM WorkOrder WHERE id = ?;
+
+selectPartUsages:
+SELECT PartUsage.*, Vehicle.license_plate, Part.name AS part_name
+FROM PartUsage
+JOIN WorkOrder ON WorkOrder.id = PartUsage.work_order_id
+JOIN Vehicle ON Vehicle.id = WorkOrder.vehicle_id
+JOIN Part ON Part.id = PartUsage.part_id
+ORDER BY PartUsage.usage_date DESC;
+
+insertPartUsage:
+INSERT INTO PartUsage(work_order_id, part_id, usage_date, amount, discount_amount) VALUES (?, ?, ?, ?, ?);
+
+updatePartUsage:
+UPDATE PartUsage SET work_order_id = ?, part_id = ?, usage_date = ?, amount = ?, discount_amount = ? WHERE id = ?;
+
+deletePartUsage:
+DELETE FROM PartUsage WHERE id = ?;
+
+selectPayments:
+SELECT Payment.*, Vehicle.license_plate, Client.last_name || ' ' || Client.first_name AS client_name
+FROM Payment
+JOIN WorkOrder ON WorkOrder.id = Payment.work_order_id
+JOIN Vehicle ON Vehicle.id = WorkOrder.vehicle_id
+JOIN Client ON Client.id = Vehicle.client_id
+ORDER BY Payment.payment_date DESC;
+
+insertPayment:
+INSERT INTO Payment(work_order_id, payment_date, amount, discount_amount) VALUES (?, ?, ?, ?);
+
+updatePayment:
+UPDATE Payment SET work_order_id = ?, payment_date = ?, amount = ?, discount_amount = ? WHERE id = ?;
+
+deletePayment:
+DELETE FROM Payment WHERE id = ?;
+
+clientSpendingSummary:
+SELECT Client.id AS client_id, Client.last_name || ' ' || Client.first_name AS client_name,
+       COUNT(DISTINCT Vehicle.id) AS vehicle_count,
+       coalesce(SUM(payments.net_amount), 0.0) AS total_paid
+FROM Client
+LEFT JOIN Vehicle ON Vehicle.client_id = Client.id
+LEFT JOIN (
+    SELECT WorkOrder.vehicle_id, Payment.amount - Payment.discount_amount AS net_amount
+    FROM Payment
+    JOIN WorkOrder ON WorkOrder.id = Payment.work_order_id
+) payments ON payments.vehicle_id = Vehicle.id
+GROUP BY Client.id
+ORDER BY total_paid DESC;
+
+monthlyRevenue:
+SELECT month, SUM(services) AS services, SUM(parts) AS parts
+FROM (
+    SELECT substr(open_date, 1, 7) AS month, quantity * unit_price AS services, 0.0 AS parts FROM WorkOrder
+    UNION ALL
+    SELECT substr(usage_date, 1, 7) AS month, 0.0 AS services, amount AS parts FROM PartUsage
+) combined
+GROUP BY month
+ORDER BY month DESC;
+
+categoryRevenue:
+SELECT ServiceCategory.name AS category_name,
+       SUM(WorkOrder.quantity * WorkOrder.unit_price) AS amount
+FROM WorkOrder
+JOIN Service ON Service.id = WorkOrder.service_id
+JOIN ServiceCategory ON ServiceCategory.id = Service.category_id
+GROUP BY ServiceCategory.id
+ORDER BY amount DESC;
+
+dashboardCounts:
+SELECT (SELECT COUNT(*) FROM Client WHERE status = 'ACTIVE') AS client_count,
+       (SELECT COUNT(*) FROM Vehicle WHERE status = 'ACTIVE') AS vehicle_count,
+       (SELECT COUNT(*) FROM Service WHERE is_active = 1) AS service_count,
+       (SELECT COUNT(*) FROM WorkOrder) AS work_order_count;
