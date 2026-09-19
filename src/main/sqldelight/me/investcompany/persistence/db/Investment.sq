@@ -85,6 +85,15 @@ CREATE TABLE Dividend (
     tax_amount REAL NOT NULL DEFAULT 0 CHECK (tax_amount >= 0 AND tax_amount <= amount)
 );
 
+CREATE TABLE Coupon (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES InvestmentAccount(id) ON DELETE RESTRICT,
+    instrument_id INTEGER NOT NULL REFERENCES Instrument(id) ON DELETE RESTRICT,
+    payment_date TEXT NOT NULL,
+    amount REAL NOT NULL CHECK (amount > 0),
+    tax_amount REAL NOT NULL DEFAULT 0 CHECK (tax_amount >= 0 AND tax_amount <= amount)
+);
+
 CREATE INDEX client_name_index ON Client(last_name, first_name);
 CREATE INDEX client_manager_index ON Client(manager_id);
 CREATE INDEX account_client_index ON InvestmentAccount(client_id);
@@ -93,6 +102,7 @@ CREATE INDEX trade_account_date_index ON Trade(account_id, trade_date);
 CREATE INDEX trade_instrument_date_index ON Trade(instrument_id, trade_date);
 CREATE INDEX trade_employee_index ON Trade(employee_id);
 CREATE INDEX dividend_account_date_index ON Dividend(account_id, payment_date);
+CREATE INDEX coupon_account_date_index ON Coupon(account_id, payment_date);
 
 selectEmployees:
 SELECT * FROM Employee ORDER BY last_name, first_name;
@@ -322,6 +332,24 @@ UPDATE Dividend SET account_id = ?, instrument_id = ?, payment_date = ?, amount 
 
 deleteDividend:
 DELETE FROM Dividend WHERE id = ?;
+
+selectCoupons:
+SELECT Coupon.*, Client.last_name || ' ' || Client.first_name AS client_name,
+       InvestmentAccount.account_number, Instrument.ticker
+FROM Coupon
+JOIN InvestmentAccount ON InvestmentAccount.id = Coupon.account_id
+JOIN Client ON Client.id = InvestmentAccount.client_id
+JOIN Instrument ON Instrument.id = Coupon.instrument_id
+ORDER BY Coupon.payment_date DESC;
+
+insertCoupon:
+INSERT INTO Coupon(account_id, instrument_id, payment_date, amount, tax_amount) VALUES (?, ?, ?, ?, ?);
+
+updateCoupon:
+UPDATE Coupon SET account_id = ?, instrument_id = ?, payment_date = ?, amount = ?, tax_amount = ? WHERE id = ?;
+
+deleteCoupon:
+DELETE FROM Coupon WHERE id = ?;
 
 dashboardCounts:
 SELECT (SELECT COUNT(*) FROM Client WHERE status = 'ACTIVE') AS client_count,

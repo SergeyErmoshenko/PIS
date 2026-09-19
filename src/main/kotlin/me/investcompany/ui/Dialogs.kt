@@ -11,11 +11,11 @@ import java.time.LocalDate
 @Composable
 fun EmployeeDialog(value: Employee? = null, close: () -> Unit, save: (EmployeeInput) -> Unit) {
     var lastName by remember { mutableStateOf(value?.lastName.orEmpty()) }; var firstName by remember { mutableStateOf(value?.firstName.orEmpty()) }
-    var middleName by remember { mutableStateOf(value?.middleName.orEmpty()) }; var position by remember { mutableStateOf(value?.position ?: "Инвестиционный менеджер") }
+    var middleName by remember { mutableStateOf(value?.middleName.orEmpty()) }; var position by remember { mutableStateOf(value?.position ?: STANDARD_POSITIONS[1]) }
     var phone by remember { mutableStateOf(value?.phone.orEmpty()) }; var email by remember { mutableStateOf(value?.email.orEmpty()) }
     FormDialog(if (value == null) "Новый сотрудник" else "Редактирование сотрудника", close, { save(EmployeeInput(lastName, firstName, middleName.ifBlank { null }, position, phone, email)) }) {
         FormField(lastName, { lastName = it }, "Фамилия"); FormField(firstName, { firstName = it }, "Имя"); FormField(middleName, { middleName = it }, "Отчество")
-        FormField(position, { position = it }, "Должность"); FormField(phone, { phone = it }, "Телефон"); FormField(email, { email = it }, "Email")
+        StringSelector("Должность", STANDARD_POSITIONS, position) { position = it }; FormField(phone, { phone = it }, "Телефон"); FormField(email, { email = it }, "Email")
     }
 }
 
@@ -72,8 +72,17 @@ fun DividendDialog(accounts: List<Account>, instruments: List<Instrument>, value
     }
 }
 
+@Composable
+fun CouponDialog(accounts: List<Account>, instruments: List<Instrument>, value: Coupon? = null, close: () -> Unit, save: (Long, Long, Double, Double) -> Unit) {
+    var account by remember { mutableStateOf(value?.accountId ?: accounts.firstOrNull()?.id) }; var instrument by remember { mutableStateOf(value?.instrumentId ?: instruments.firstOrNull()?.id) }; var amount by remember { mutableStateOf(value?.amount?.toString().orEmpty()) }; var tax by remember { mutableStateOf(value?.taxAmount?.toString() ?: "0") }
+    FormDialog(if (value == null) "Новая выплата купона" else "Редактирование выплаты купона", close, { if (account != null && instrument != null) save(account!!, instrument!!, amount.toDoubleOrNull() ?: 0.0, tax.toDoubleOrNull() ?: 0.0) }) {
+        Selector("Счет", accounts, account, { it.id }, { "${it.accountNumber} — ${it.clientName}" }) { account = it }; Selector("Инструмент", instruments, instrument, { it.id }, { "${it.ticker} — ${it.name}" }) { instrument = it }; FormField(amount, { amount = it }, "Сумма"); FormField(tax, { tax = it }, "Налог")
+    }
+}
+
 @Composable fun ConfirmDialog(title: String, text: String, close: () -> Unit, confirm: () -> Unit) = AlertDialog(close, title = { Text(title) }, text = { Text(text) }, confirmButton = { Button(confirm) { Text("Подтвердить") } }, dismissButton = { TextButton(close) { Text("Отмена") } })
 
 @Composable private fun FormDialog(title: String, close: () -> Unit, save: () -> Unit, content: @Composable ColumnScope.() -> Unit) = AlertDialog(close, title = { Text(title) }, text = { Column(Modifier.width(480.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }, confirmButton = { Button(save) { Text("Сохранить") } }, dismissButton = { TextButton(close) { Text("Отмена") } })
 @Composable private fun FormField(value: String, change: (String) -> Unit, label: String) = OutlinedTextField(value, change, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
 @Composable private fun <T> Selector(label: String, values: List<T>, selected: Long?, id: (T) -> Long, text: (T) -> String, change: (Long) -> Unit) { var expanded by remember { mutableStateOf(false) }; Box { OutlinedButton({ expanded = true }, Modifier.fillMaxWidth()) { Text("$label: ${values.firstOrNull { id(it) == selected }?.let(text) ?: "не выбран"}") }; DropdownMenu(expanded, { expanded = false }) { values.forEach { value -> DropdownMenuItem({ Text(text(value)) }, { change(id(value)); expanded = false }) } } } }
+@Composable private fun StringSelector(label: String, values: List<String>, selected: String, change: (String) -> Unit) { var expanded by remember { mutableStateOf(false) }; Box { OutlinedButton({ expanded = true }, Modifier.fillMaxWidth()) { Text("$label: $selected") }; DropdownMenu(expanded, { expanded = false }) { values.forEach { value -> DropdownMenuItem({ Text(value) }, { change(value); expanded = false }) } } } }

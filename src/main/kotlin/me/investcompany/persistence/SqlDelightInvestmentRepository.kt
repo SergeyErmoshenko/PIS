@@ -103,6 +103,12 @@ class SqlDelightInvestmentRepository private constructor(
             employee.phone, employee.email, 0L, id)
     }
 
+    override fun restoreEmployee(id: Long) {
+        val employee = employees().firstOrNull { it.id == id } ?: error("Сотрудник не найден")
+        queries.updateEmployee(employee.lastName, employee.firstName, employee.middleName, employee.position,
+            employee.phone, employee.email, 1L, id)
+    }
+
     override fun addClient(client: NewClient) {
         client.validate()
         val now = LocalDateTime.now().toString()
@@ -162,6 +168,12 @@ class SqlDelightInvestmentRepository private constructor(
             instrument.currency, 0L, id)
     }
 
+    override fun restoreInstrument(id: Long) {
+        val instrument = instruments().firstOrNull { it.id == id } ?: error("Инструмент не найден")
+        queries.updateInstrument(instrument.typeId, instrument.ticker, instrument.name, instrument.issuer,
+            instrument.currency, 1L, id)
+    }
+
     override fun addPrice(instrumentId: Long, price: Double) {
         require(price > 0) { "Цена должна быть больше нуля" }
         queries.insertInstrumentPrice(instrumentId, LocalDate.now().toString(), price)
@@ -217,17 +229,44 @@ class SqlDelightInvestmentRepository private constructor(
         queries.deleteDividend(id)
     }
 
+    override fun coupons() = queries.selectCoupons().executeAsList().map {
+        Coupon(it.id, it.account_id, it.instrument_id, it.payment_date, it.amount, it.tax_amount,
+            it.client_name, it.account_number, it.ticker)
+    }
+
+    override fun addCoupon(accountId: Long, instrumentId: Long, amount: Double, taxAmount: Double) {
+        require(amount > 0) { "Сумма должна быть больше нуля" }
+        require(taxAmount in 0.0..amount) { "Некорректная сумма налога" }
+        queries.insertCoupon(accountId, instrumentId, LocalDate.now().toString(), amount, taxAmount)
+    }
+
+    override fun updateCoupon(id: Long, accountId: Long, instrumentId: Long, amount: Double, taxAmount: Double) {
+        require(amount > 0) { "Сумма должна быть больше нуля" }
+        require(taxAmount in 0.0..amount) { "Некорректная сумма налога" }
+        val current = coupons().firstOrNull { it.id == id } ?: error("Купон не найден")
+        queries.updateCoupon(accountId, instrumentId, current.paymentDate, amount, taxAmount, id)
+    }
+
+    override fun deleteCoupon(id: Long) {
+        queries.deleteCoupon(id)
+    }
+
     override fun close() = driver.close()
 
     companion object {
         fun open(file: File): SqlDelightInvestmentRepository {
             file.parentFile?.toPath()?.createDirectories()
             val isNew = !file.exists()
+            if (!isNew) { migrateSearchNameColumn(file); migrateCouponTable(file) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${file.absolutePath}")
             if (isNew) InvestDatabase.Schema.create(driver)
             driver.execute(null, "PRAGMA foreign_keys = ON", 0)
             val repository = SqlDelightInvestmentRepository(driver, InvestDatabase(driver))
             repository.seedIfEmpty()
+            repository.backfillMiddleNames()
+            repository.backfillSellTrades()
+            repository.backfillDividends()
+            repository.backfillCoupons()
             return repository
         }
 
@@ -239,6 +278,108 @@ class SqlDelightInvestmentRepository private constructor(
             if (seed) repository.seedIfEmpty()
             return repository
         }
+
+        private fun migrateSearchNameColumn(file: File) {
+            val conn = java.sql.DriverManager.getConnection("jdbc:sqlite:${file.absolutePath}")
+            try {
+                val hasColumn = conn.createStatement().executeQuery("PRAGMA table_info(Client)").let { rs ->
+                    var found = false
+                    while (rs.next()) if (rs.getString("name") == "search_name") found = true
+                    rs.close()
+                    found
+                }
+                if (hasColumn) return
+                conn.createStatement().execute("ALTER TABLE Client ADD COLUMN search_name TEXT NOT NULL DEFAULT ''")
+                val rows = mutableListOf<Triple<Long, String, Pair<String, String?>>>()
+                val rs = conn.createStatement().executeQuery("SELECT id, last_name, first_name, middle_name FROM Client")
+                while (rs.next()) rows += Triple(rs.getLong("id"), rs.getString("last_name"), rs.getString("first_name") to rs.getString("middle_name"))
+                rs.close()
+                val stmt = conn.prepareStatement("UPDATE Client SET search_name = ? WHERE id = ?")
+                rows.forEach { (id, lastName, rest) ->
+                    stmt.setString(1, searchName(lastName, rest.first, rest.second))
+                    stmt.setLong(2, id)
+                    stmt.addBatch()
+                }
+                stmt.executeBatch()
+                stmt.close()
+            } finally {
+                conn.close()
+            }
+        }
+
+        private fun migrateCouponTable(file: File) {
+            val conn = java.sql.DriverManager.getConnection("jdbc:sqlite:${file.absolutePath}")
+            try {
+                conn.createStatement().execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS Coupon (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        account_id INTEGER NOT NULL REFERENCES InvestmentAccount(id) ON DELETE RESTRICT,
+                        instrument_id INTEGER NOT NULL REFERENCES Instrument(id) ON DELETE RESTRICT,
+                        payment_date TEXT NOT NULL,
+                        amount REAL NOT NULL CHECK (amount > 0),
+                        tax_amount REAL NOT NULL DEFAULT 0 CHECK (tax_amount >= 0 AND tax_amount <= amount)
+                    )
+                    """.trimIndent()
+                )
+                conn.createStatement().execute("CREATE INDEX IF NOT EXISTS coupon_account_date_index ON Coupon(account_id, payment_date)")
+            } finally {
+                conn.close()
+            }
+        }
+    }
+
+    private fun backfillMiddleNames() {
+        queries.selectEmployees().executeAsList()
+            .filter { it.last_name == "Орлов" && it.first_name == "Дмитрий" && it.middle_name == null }
+            .forEach {
+                queries.updateEmployee(it.last_name, it.first_name, "Николаевич", it.position, it.phone, it.email, it.is_active, it.id)
+            }
+        queries.selectEmployees().executeAsList()
+            .filter { it.last_name == "Соколова" && it.first_name == "Анна" && it.position != "Администратор" }
+            .forEach {
+                queries.updateEmployee(it.last_name, it.first_name, it.middle_name, "Администратор", it.phone, it.email, it.is_active, it.id)
+            }
+    }
+
+    private fun backfillSellTrades() {
+        if (trades().any { it.type == TradeType.SELL }) return
+        val accounts = accounts(); val instruments = instruments(); val managers = employees()
+        if (accounts.isEmpty() || instruments.isEmpty() || managers.isEmpty()) return
+        val now = LocalDateTime.now().toString()
+        repeat(10) { index ->
+            val account = accounts[index % accounts.size]
+            val instrument = instruments[index % instruments.size]
+            val available = queries.positionQuantity(account.id, instrument.id).executeAsOne()
+            if (available < 2.0) return@repeat
+            queries.insertTrade(account.id, instrument.id, managers[index % managers.size].id, "SELL",
+                LocalDate.now().minusDays(index.toLong()).toString(), 2.0,
+                instrument.latestPrice ?: 100.0, 5.0, "Демонстрационная продажа", now)
+        }
+    }
+
+    private fun backfillDividends() {
+        if (dividends().isNotEmpty()) return
+        val accounts = accounts(); val instruments = instruments()
+        if (accounts.isEmpty() || instruments.isEmpty()) return
+        repeat(5) { index ->
+            val account = accounts[index % accounts.size]
+            val instrument = instruments[index % instruments.size]
+            queries.insertDividend(account.id, instrument.id, LocalDate.now().minusDays((index * 7).toLong()).toString(),
+                500.0 + index * 50, 65.0 + index * 6.5)
+        }
+    }
+
+    private fun backfillCoupons() {
+        if (coupons().isNotEmpty()) return
+        val accounts = accounts(); val instruments = instruments()
+        if (accounts.isEmpty() || instruments.isEmpty()) return
+        repeat(5) { index ->
+            val account = accounts[index % accounts.size]
+            val instrument = instruments[index % instruments.size]
+            queries.insertCoupon(account.id, instrument.id, LocalDate.now().minusDays((index * 14).toLong()).toString(),
+                300.0 + index * 40, 39.0 + index * 5.2)
+        }
     }
 
     private fun seedIfEmpty() {
@@ -246,8 +387,8 @@ class SqlDelightInvestmentRepository private constructor(
         val now = LocalDateTime.now().toString()
         queries.transaction {
             queries.insertEmployee("Иванов", "Петр", "Сергеевич", "Инвестиционный менеджер", "+7 900 100-10-10", "ivanov@invest.local", 1L, now)
-            queries.insertEmployee("Соколова", "Анна", "Игоревна", "Старший менеджер", "+7 900 200-20-20", "sokolova@invest.local", 1L, now)
-            queries.insertEmployee("Орлов", "Дмитрий", null, "Аналитик", "+7 900 300-30-30", "orlov@invest.local", 1L, now)
+            queries.insertEmployee("Соколова", "Анна", "Игоревна", "Администратор", "+7 900 200-20-20", "sokolova@invest.local", 1L, now)
+            queries.insertEmployee("Орлов", "Дмитрий", "Николаевич", "Аналитик", "+7 900 300-30-30", "orlov@invest.local", 1L, now)
             queries.insertInstrumentType("Акция", "Долевая ценная бумага")
             queries.insertInstrumentType("Облигация", "Долговая ценная бумага")
             queries.insertInstrumentType("Фонд", "Биржевой инвестиционный фонд")
@@ -294,6 +435,12 @@ class SqlDelightInvestmentRepository private constructor(
             val instrument = instruments[index % instruments.size]
             queries.insertDividend(account.id, instrument.id, LocalDate.now().minusDays((index * 7).toLong()).toString(),
                 500.0 + index * 50, 65.0 + index * 6.5)
+        }
+        repeat(5) { index ->
+            val account = accounts[index % accounts.size]
+            val instrument = instruments[index % instruments.size]
+            queries.insertCoupon(account.id, instrument.id, LocalDate.now().minusDays((index * 14).toLong()).toString(),
+                300.0 + index * 40, 39.0 + index * 5.2)
         }
     }
 }

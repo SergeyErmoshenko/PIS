@@ -5,6 +5,8 @@ enum class AccountStatus { OPEN, CLOSED, BLOCKED }
 enum class TradeType { BUY, SELL }
 enum class UserRole { ADMINISTRATOR, MANAGER, ANALYST }
 
+val STANDARD_POSITIONS = listOf("Администратор", "Инвестиционный менеджер", "Аналитик")
+
 data class Employee(
     val id: Long,
     val lastName: String,
@@ -102,6 +104,20 @@ data class Trade(
 }
 
 data class Dividend(
+    val id: Long,
+    val accountId: Long,
+    val instrumentId: Long,
+    val paymentDate: String,
+    val amount: Double,
+    val taxAmount: Double,
+    val clientName: String,
+    val accountNumber: String,
+    val ticker: String,
+) {
+    val netAmount: Double get() = amount - taxAmount
+}
+
+data class Coupon(
     val id: Long,
     val accountId: Long,
     val instrumentId: Long,
