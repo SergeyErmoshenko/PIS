@@ -3,6 +3,8 @@ package me.autoservice.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -11,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.autoservice.domain.*
@@ -24,10 +27,21 @@ private enum class Section(val title: String, val icon: ImageVector) {
     PAYMENTS("Платежи", Icons.Default.Payments), REPORTS("Отчеты", Icons.Default.Assessment),
 }
 
+private val WorkshopColors = lightColorScheme(
+    primary = Color(0xFFD84B1F), onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFFFDBC8), onPrimaryContainer = Color(0xFF3E1200),
+    secondary = Color(0xFF8A5A2A), secondaryContainer = Color(0xFFF3DDBF), onSecondaryContainer = Color(0xFF2E1D00),
+    background = Color(0xFFFFF8F1), onBackground = Color(0xFF3B2A20),
+    surface = Color(0xFFFFFBF6), onSurface = Color(0xFF3B2A20),
+    surfaceVariant = Color(0xFFF1E1CC), onSurfaceVariant = Color(0xFF6E5B47),
+    outline = Color(0xFFDCC6AA), error = Color(0xFFBA1A1A), onError = Color.White,
+)
+private val TileAccents = listOf(Color(0xFFFFE0CC), Color(0xFFFFE8B8), Color(0xFFE6ECC6), Color(0xFFDCEBE3), Color(0xFFF3DDD2))
+
 @Composable
 fun AutoServiceApp(repository: AutoServiceRepository) {
     var user by remember { mutableStateOf<Employee?>(null) }
-    MaterialTheme(colorScheme = lightColorScheme(primary = androidx.compose.ui.graphics.Color(0xFF14532D))) {
+    MaterialTheme(colorScheme = WorkshopColors) {
         if (user == null) UserSelectionScreen(repository.employees().filter { it.isActive }) { user = it }
         else MainWorkspace(repository, user!!, { user = null })
     }
@@ -36,38 +50,52 @@ fun AutoServiceApp(repository: AutoServiceRepository) {
 @Composable
 private fun UserSelectionScreen(users: List<Employee>, select: (Employee) -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Card(Modifier.width(560.dp)) { Column(Modifier.padding(32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Icon(Icons.Default.DirectionsCar, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+        Card(Modifier.width(560.dp), shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(56.dp)) {
+                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Build, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp)) }
+            }
             Text("Информационная система предприятия автосервиса", style = MaterialTheme.typography.headlineSmall)
             Text("Выберите пользователя для входа. Пароль не требуется.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            users.forEach { employee -> OutlinedButton({ select(employee) }, Modifier.fillMaxWidth()) { Column(Modifier.fillMaxWidth()) { Text(employee.fullName); Text(employee.position, style = MaterialTheme.typography.bodySmall) } } }
+            users.forEach { employee -> OutlinedButton({ select(employee) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Column(Modifier.fillMaxWidth()) { Text(employee.fullName); Text(employee.position, style = MaterialTheme.typography.bodySmall) } } }
         } }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainWorkspace(repository: AutoServiceRepository, user: Employee, logout: () -> Unit) {
     var section by remember { mutableStateOf(Section.DASHBOARD) }; var revision by remember { mutableIntStateOf(0) }; var message by remember { mutableStateOf<String?>(null) }
-    Scaffold { padding -> Row(Modifier.fillMaxSize().padding(padding)) {
-        NavigationRail {
-            Spacer(Modifier.height(12.dp)); Section.entries.filter { it != Section.EMPLOYEES || user.role == UserRole.ADMINISTRATOR }.forEach { item -> NavigationRailItem(section == item, { section = item }, { Icon(item.icon, null) }, label = { Text(item.title) }) }
-            Spacer(Modifier.weight(1f)); IconButton(logout) { Icon(Icons.Default.Logout, "Сменить пользователя") }; Spacer(Modifier.height(12.dp))
+    val sections = Section.entries.filter { it != Section.EMPLOYEES || user.role == UserRole.ADMINISTRATOR }
+    Scaffold(topBar = {
+        Column {
+            TopAppBar(
+                title = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Icon(Icons.Default.Build, null); Text("Автосервис", style = MaterialTheme.typography.titleLarge) } },
+                actions = {
+                    Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(end = 12.dp)) { Text(user.fullName, style = MaterialTheme.typography.bodyMedium); Text(user.position, style = MaterialTheme.typography.bodySmall) }
+                    IconButton(logout) { Icon(Icons.Default.Logout, "Сменить пользователя") }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary, titleContentColor = MaterialTheme.colorScheme.onPrimary, actionIconContentColor = MaterialTheme.colorScheme.onPrimary),
+            )
+            ScrollableTabRow(selectedTabIndex = sections.indexOf(section).coerceAtLeast(0), edgePadding = 16.dp, containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary) {
+                sections.forEach { item -> Tab(section == item, { section = item }, text = { Text(item.title) }, icon = { Icon(item.icon, null) }) }
+            }
         }
-        VerticalDivider(); Column(Modifier.fillMaxSize()) {
-            Surface(tonalElevation = 2.dp) { Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp), horizontalArrangement = Arrangement.End) { Text("${user.fullName} · ${user.position}") } }
-            Box(Modifier.fillMaxSize().padding(24.dp)) { key(revision) { when (section) {
+    }) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding).padding(24.dp)) {
+            key(revision) { when (section) {
                 Section.DASHBOARD -> DashboardScreen(repository); Section.EMPLOYEES -> EmployeesScreen(repository, { revision++ }, { message = it })
                 Section.CLIENTS -> ClientsScreen(repository, user, { revision++ }, { message = it }); Section.VEHICLES -> VehiclesScreen(repository, user, { revision++ }, { message = it })
                 Section.SERVICES -> ServicesScreen(repository, user, { revision++ }, { message = it }); Section.PARTS -> PartsScreen(repository, user, { revision++ }, { message = it })
                 Section.WORK_ORDERS -> WorkOrdersScreen(repository, user, { revision++ }, { message = it }); Section.PART_USAGE -> PartUsageScreen(repository, user, { revision++ }, { message = it })
                 Section.PAYMENTS -> PaymentsScreen(repository, user, { revision++ }, { message = it }); Section.REPORTS -> ReportsScreen(repository)
-            } }; message?.let { Snackbar(Modifier.align(Alignment.BottomCenter), action = { TextButton({ message = null }) { Text("Закрыть") } }) { Text(it) } } }
+            } }
+            message?.let { Snackbar(Modifier.align(Alignment.BottomCenter), action = { TextButton({ message = null }) { Text("Закрыть") } }) { Text(it) } }
         }
-    } }
+    }
 }
 
-@Composable private fun DashboardScreen(repository: AutoServiceRepository) { val d = repository.dashboard(); val summaries = repository.clientSpendingSummaries(); Column(verticalArrangement = Arrangement.spacedBy(20.dp)) { Title("Обзор автосервиса", "Основные показатели системы"); Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { MetricCard("Клиенты", d.clientCount.toString(), Icons.Default.People); MetricCard("Автомобили", d.vehicleCount.toString(), Icons.Default.DirectionsCar); MetricCard("Услуги", d.serviceCount.toString(), Icons.Default.Build); MetricCard("Заказ-наряды", d.workOrderCount.toString(), Icons.Default.Assignment); MetricCard("Выручка", money(summaries.sumOf { it.totalPaid }), Icons.Default.Payments) }; Text("Крупнейшие клиенты", style = MaterialTheme.typography.titleLarge); DataTable(listOf("Клиент", "Автомобилей", "Оплачено"), summaries.take(8).map { listOf(it.clientName, it.vehicleCount.toString(), money(it.totalPaid)) }) } }
-@Composable private fun MetricCard(label: String, value: String, icon: ImageVector) { Card(Modifier.widthIn(min = 145.dp)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary); Text(value, style = MaterialTheme.typography.titleLarge); Text(label) } } }
+@Composable private fun DashboardScreen(repository: AutoServiceRepository) { val d = repository.dashboard(); val summaries = repository.clientSpendingSummaries(); Column(verticalArrangement = Arrangement.spacedBy(24.dp)) { Title("Обзор автосервиса", "Основные показатели системы"); Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) { MetricCard("Клиенты", d.clientCount.toString(), Icons.Default.People, TileAccents[0]); MetricCard("Автомобили", d.vehicleCount.toString(), Icons.Default.DirectionsCar, TileAccents[1]); MetricCard("Услуги", d.serviceCount.toString(), Icons.Default.Build, TileAccents[2]); MetricCard("Заказ-наряды", d.workOrderCount.toString(), Icons.Default.Assignment, TileAccents[3]); MetricCard("Выручка", money(summaries.sumOf { it.totalPaid }), Icons.Default.Payments, TileAccents[4]) }; Text("Крупнейшие клиенты", style = MaterialTheme.typography.titleLarge); DataTable(listOf("Клиент", "Автомобилей", "Оплачено"), summaries.take(8).map { listOf(it.clientName, it.vehicleCount.toString(), money(it.totalPaid)) }) } }
+@Composable private fun MetricCard(label: String, value: String, icon: ImageVector, accent: Color) = Card(Modifier.widthIn(min = 150.dp), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = accent)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Surface(shape = CircleShape, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(36.dp)) { Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) } }; Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground); Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)) } }
 
 @Composable
 private fun EmployeesScreen(repository: AutoServiceRepository, refresh: () -> Unit, message: (String) -> Unit) {
@@ -149,18 +177,24 @@ private fun PaymentsScreen(repository: AutoServiceRepository, user: Employee, re
 @Composable private fun ReportsScreen(repository: AutoServiceRepository) { Column(verticalArrangement = Arrangement.spacedBy(20.dp)) { Title("Отчеты", "Группировка и аналитические запросы"); Text("Оборот по месяцам", style = MaterialTheme.typography.titleLarge); DataTable(listOf("Месяц", "Услуги", "Запчасти"), repository.monthlyRevenue().map { listOf(it.month, money(it.services), money(it.parts)) }); Text("Выручка по категориям услуг", style = MaterialTheme.typography.titleLarge); DataTable(listOf("Категория", "Выручка"), repository.categoryRevenue().map { listOf(it.categoryName, money(it.amount)) }) } }
 
 @Composable private fun Title(title: String, subtitle: String) = Column { Text(title, style = MaterialTheme.typography.headlineMedium); Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-@Composable private fun Header(title: String, subtitle: String, button: String?, action: () -> Unit) = Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Title(title, subtitle); if (button != null) Button(action) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text(button) } }
+@Composable private fun Header(title: String, subtitle: String, button: String?, action: () -> Unit) = Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Title(title, subtitle); if (button != null) Button(action, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text(button) } }
 @Composable private fun SmallField(value: String, change: (String) -> Unit, label: String, placeholder: String? = null) = OutlinedTextField(value, change, label = { Text(label) }, placeholder = placeholder?.let { { Text(it, maxLines = 1, overflow = TextOverflow.Clip, style = MaterialTheme.typography.bodySmall) } }, modifier = Modifier.width(if (placeholder != null) 150.dp else 125.dp), singleLine = true)
 @Composable private fun Actions(edit: () -> Unit, remove: () -> Unit, archiveLabel: String = "Удалить", restore: (() -> Unit)? = null) = Row {
     IconButton(edit) { Icon(Icons.Default.Edit, "Изменить") }
     if (restore != null) IconButton(restore) { Icon(Icons.Default.Unarchive, "Восстановить") }
     else IconButton(remove) { Icon(if (archiveLabel == "Удалить") Icons.Default.Delete else Icons.Default.Archive, archiveLabel) }
 }
-@Composable private fun <T> EntityList(headers: List<String>, rows: List<T>, values: (T) -> List<String>, muted: (T) -> Boolean = { false }, action: @Composable (T) -> Unit) = LazyColumn(verticalArrangement = Arrangement.spacedBy(5.dp)) { item { TableHeader(headers) }; items(rows) { item -> TableRow(values(item), muted(item)) { action(item) } } }
-@Composable private fun DataTable(headers: List<String>, rows: List<List<String>>) = LazyColumn(verticalArrangement = Arrangement.spacedBy(5.dp)) { item { TableHeader(headers) }; items(rows) { TableRow(it) } }
-private val ActionsColumnWidth = 200.dp
-@Composable private fun TableHeader(values: List<String>) = Surface(color = MaterialTheme.colorScheme.surfaceVariant) { Row(Modifier.fillMaxWidth().padding(9.dp)) { values.forEach { Text(it, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge) }; Spacer(Modifier.width(ActionsColumnWidth)) } }
-@Composable private fun TableRow(values: List<String>, muted: Boolean = false, action: (@Composable () -> Unit)? = null) = Surface(tonalElevation = 1.dp, color = if (muted) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surface) { Row(Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) { values.forEachIndexed { index, value -> Text(value, Modifier.weight(1f), maxLines = 2, color = if (muted && index == values.lastIndex) MaterialTheme.colorScheme.error else if (muted) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified) }; Box(Modifier.width(ActionsColumnWidth)) { action?.invoke() } } }
+@Composable private fun <T> EntityList(headers: List<String>, rows: List<T>, values: (T) -> List<String>, muted: (T) -> Boolean = { false }, action: @Composable (T) -> Unit) = LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) { items(rows) { item -> RecordCard(headers, values(item), muted(item)) { action(item) } } }
+@Composable private fun DataTable(headers: List<String>, rows: List<List<String>>) = LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) { items(rows) { RecordCard(headers, it, false) {} } }
+@Composable private fun RecordCard(headers: List<String>, values: List<String>, muted: Boolean, action: @Composable () -> Unit) = Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (muted) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(values.first(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            Text(headers.drop(1).zip(values.drop(1)).joinToString("   ") { (h, v) -> "$h: $v" }, style = MaterialTheme.typography.bodySmall, color = if (muted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        action()
+    }
+}
 private fun money(value: Double) = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("ru-RU")).format(value)
 private fun number(value: Double) = "%.2f".format(Locale.US, value).trimEnd('0').trimEnd('.')
 private fun status(value: String) = when (value) { "ACTIVE" -> "Активен"; "BLOCKED" -> "Заблокирован"; "ARCHIVED" -> "Архив"; "SOLD" -> "Продан"; "NEW" -> "Новый"; "IN_PROGRESS" -> "В работе"; "COMPLETED" -> "Завершен"; "CANCELLED" -> "Отменен"; else -> value }
