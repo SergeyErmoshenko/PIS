@@ -44,12 +44,41 @@ private fun UserSelectionScreen(users: List<Employee>, select: (Employee) -> Uni
     }
 }
 
+private fun visibleSections(role: UserRole): List<Section> = when (role) {
+    UserRole.ADMINISTRATOR -> Section.entries
+    UserRole.MANAGER -> listOf(
+        Section.DASHBOARD,
+        Section.CLIENTS,
+        Section.ACCOUNTS,
+        Section.INSTRUMENTS,
+        Section.TRADES,
+        Section.PORTFOLIOS,
+        Section.DIVIDENDS,
+        Section.COUPONS,
+        Section.REPORTS,
+    )
+    UserRole.ANALYST -> listOf(
+        Section.DASHBOARD,
+        Section.INSTRUMENTS,
+        Section.PORTFOLIOS,
+        Section.DIVIDENDS,
+        Section.COUPONS,
+        Section.REPORTS,
+    )
+}
+
 @Composable
 private fun MainWorkspace(repository: InvestmentRepository, user: Employee, logout: () -> Unit) {
-    var section by remember { mutableStateOf(Section.DASHBOARD) }; var revision by remember { mutableIntStateOf(0) }; var message by remember { mutableStateOf<String?>(null) }
+    val sections = visibleSections(user.role)
+    var section by remember(user.id) { mutableStateOf(sections.first()) }
+    var revision by remember { mutableIntStateOf(0) }
+    var message by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(user.role, section) {
+        if (section !in sections) section = sections.first()
+    }
     Scaffold { padding -> Row(Modifier.fillMaxSize().padding(padding)) {
         NavigationRail {
-            Spacer(Modifier.height(12.dp)); Section.entries.filter { it != Section.EMPLOYEES || user.role == UserRole.ADMINISTRATOR }.forEach { item -> NavigationRailItem(section == item, { section = item }, { Icon(item.icon, null) }, label = { Text(item.title) }) }
+            Spacer(Modifier.height(12.dp)); sections.forEach { item -> NavigationRailItem(section == item, { section = item }, { Icon(item.icon, null) }, label = { Text(item.title) }) }
             Spacer(Modifier.weight(1f)); IconButton(logout) { Icon(Icons.Default.Logout, "Сменить пользователя") }; Spacer(Modifier.height(12.dp))
         }
         VerticalDivider(); Column(Modifier.fillMaxSize()) {
