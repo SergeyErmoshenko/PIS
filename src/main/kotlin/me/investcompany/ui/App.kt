@@ -3,6 +3,8 @@ package me.investcompany.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -14,6 +16,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.investcompany.domain.*
+import me.investcompany.report.ReportService
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -88,7 +91,7 @@ private fun MainWorkspace(repository: InvestmentRepository, user: Employee, logo
                 Section.CLIENTS -> ClientsScreen(repository, user, { revision++ }, { message = it }); Section.ACCOUNTS -> AccountsScreen(repository, user, { revision++ }, { message = it })
                 Section.INSTRUMENTS -> InstrumentsScreen(repository, user, { revision++ }, { message = it }); Section.TRADES -> TradesScreen(repository, user, { revision++ }, { message = it })
                 Section.PORTFOLIOS -> PortfoliosScreen(repository, user, { revision++ }, { message = it }); Section.DIVIDENDS -> DividendsScreen(repository, user, { revision++ }, { message = it })
-                Section.COUPONS -> CouponsScreen(repository, user, { revision++ }, { message = it }); Section.REPORTS -> ReportsScreen(repository)
+                Section.COUPONS -> CouponsScreen(repository, user, { revision++ }, { message = it }); Section.REPORTS -> ReportsScreen(repository) { message = it }
             } }; message?.let { Snackbar(Modifier.align(Alignment.BottomCenter), action = { TextButton({ message = null }) { Text("Закрыть") } }) { Text(it) } } }
         }
     } }
@@ -171,7 +174,21 @@ private fun CouponsScreen(repository: InvestmentRepository, user: Employee, refr
     deletion?.let { item -> ConfirmDialog("Удалить выплату?", "Операцию нельзя отменить.", { deletion = null }) { perform(message) { repository.deleteCoupon(item.id); deletion = null; refresh() } } }
 }
 
-@Composable private fun ReportsScreen(repository: InvestmentRepository) { Column(verticalArrangement = Arrangement.spacedBy(20.dp)) { Title("Отчеты", "Группировка и аналитические запросы"); Text("Оборот по месяцам", style = MaterialTheme.typography.titleLarge); DataTable(listOf("Месяц", "Покупки", "Продажи"), repository.monthlyTurnover().map { listOf(it.month, money(it.buy), money(it.sell)) }); Text("Структура активов", style = MaterialTheme.typography.titleLarge); DataTable(listOf("Тип инструмента", "Стоимость"), repository.assetAllocation().map { listOf(it.typeName, money(it.currentValue)) }) } }
+@Composable
+private fun ReportsScreen(repository: InvestmentRepository, message: (String) -> Unit) {
+    val service = remember(repository) { ReportService(repository) }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        Title("Отчеты", "Формирование документов, группировка и аналитические запросы")
+        ReportExportPanel(service, repository.accounts(), message)
+        Text("Оборот по месяцам", style = MaterialTheme.typography.titleLarge)
+        DataTable(listOf("Месяц", "Покупки", "Продажи"), repository.monthlyTurnover().map { listOf(it.month, money(it.buy), money(it.sell)) })
+        Text("Структура активов", style = MaterialTheme.typography.titleLarge)
+        DataTable(listOf("Тип инструмента", "Стоимость"), repository.assetAllocation().map { listOf(it.typeName, money(it.currentValue)) })
+    }
+}
 
 @Composable private fun Title(title: String, subtitle: String) = Column { Text(title, style = MaterialTheme.typography.headlineMedium); Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 @Composable private fun Header(title: String, subtitle: String, button: String?, action: () -> Unit) = Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Title(title, subtitle); if (button != null) Button(action) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text(button) } }
@@ -182,7 +199,7 @@ private fun CouponsScreen(repository: InvestmentRepository, user: Employee, refr
     else IconButton(remove) { Icon(if (archiveLabel == "Удалить") Icons.Default.Delete else Icons.Default.Archive, archiveLabel) }
 }
 @Composable private fun <T> EntityList(headers: List<String>, rows: List<T>, values: (T) -> List<String>, muted: (T) -> Boolean = { false }, action: @Composable (T) -> Unit) = LazyColumn(verticalArrangement = Arrangement.spacedBy(5.dp)) { item { TableHeader(headers) }; items(rows) { item -> TableRow(values(item), muted(item)) { action(item) } } }
-@Composable private fun DataTable(headers: List<String>, rows: List<List<String>>) = LazyColumn(verticalArrangement = Arrangement.spacedBy(5.dp)) { item { TableHeader(headers) }; items(rows) { TableRow(it) } }
+@Composable private fun DataTable(headers: List<String>, rows: List<List<String>>) = Column(verticalArrangement = Arrangement.spacedBy(5.dp)) { TableHeader(headers); rows.forEach { TableRow(it) } }
 private val ActionsColumnWidth = 200.dp
 @Composable private fun TableHeader(values: List<String>) = Surface(color = MaterialTheme.colorScheme.surfaceVariant) { Row(Modifier.fillMaxWidth().padding(9.dp)) { values.forEach { Text(it, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge) }; Spacer(Modifier.width(ActionsColumnWidth)) } }
 @Composable private fun TableRow(values: List<String>, muted: Boolean = false, action: (@Composable () -> Unit)? = null) = Surface(tonalElevation = 1.dp, color = if (muted) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surface) { Row(Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) { values.forEachIndexed { index, value -> Text(value, Modifier.weight(1f), maxLines = 2, color = if (muted && index == values.lastIndex) MaterialTheme.colorScheme.error else if (muted) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified) }; Box(Modifier.width(ActionsColumnWidth)) { action?.invoke() } } }

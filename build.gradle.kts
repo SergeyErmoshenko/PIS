@@ -32,6 +32,7 @@ dependencies {
     implementation(libs.bundles.kotlinx)
     implementation(libs.kotlinx.coroutines.swing)
     implementation(libs.bundles.sqldelight)
+    implementation(libs.bundles.poi)
     implementation(libs.kotlin.logging)
     runtimeOnly(libs.logback.classic)
 
