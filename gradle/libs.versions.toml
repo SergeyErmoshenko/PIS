@@ -12,6 +12,8 @@ turbine = "1.2.0"
 kotlinLogging = "7.0.7"
 logback = "1.5.18"
 junitPlatform = "1.13.4"
+poi = "4.1.2"
+commonsCodec = "1.14"
 
 [libraries]
 kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -24,6 +26,10 @@ sqldelight-driver-sqlite = { module = "app.cash.sqldelight:sqlite-driver", versi
 sqldelight-primitive-adapters = { module = "app.cash.sqldelight:primitive-adapters", version.ref = "sqldelight" }
 kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlinLogging" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+poi = { module = "org.apache.poi:poi", version.ref = "poi" }
+poi-ooxml = { module = "org.apache.poi:poi-ooxml", version.ref = "poi" }
+poi-ooxml-schemas = { module = "org.apache.poi:poi-ooxml-schemas", version.ref = "poi" }
+commons-codec = { module = "commons-codec:commons-codec", version.ref = "commonsCodec" }
 konsist = { module = "com.lemonappdev:konsist", version.ref = "konsist" }
 kotest-assertions = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
@@ -33,6 +39,7 @@ junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher
 [bundles]
 kotlinx = ["kotlinx-coroutines", "kotlinx-collections-immutable", "kotlinx-datetime", "kotlinx-serialization-json"]
 sqldelight = ["sqldelight-runtime", "sqldelight-driver-sqlite", "sqldelight-primitive-adapters"]
+poi = ["poi", "poi-ooxml", "poi-ooxml-schemas", "commons-codec"]
 testing = ["kotest-assertions", "konsist", "turbine", "kotlinx-coroutines-test"]
 
 [plugins]
